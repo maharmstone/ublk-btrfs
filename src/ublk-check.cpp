@@ -2,10 +2,20 @@
 #include <ublksrv_utils.h>
 #include <string.h>
 #include <iostream>
+#include <memory>
 
 using namespace std;
 
 static char jbuf[4096];
+
+class ublksrv_ctrl_dev_deleter {
+public:
+    void operator()(ublksrv_ctrl_dev* dev) {
+        ublksrv_ctrl_deinit(dev);
+    }
+};
+
+using ublksrv_ctrl_dev_ptr = unique_ptr<ublksrv_ctrl_dev, ublksrv_ctrl_dev_deleter>;
 
 static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
                          char** /*argv*/) {
@@ -55,13 +65,11 @@ static void ublk_check() {
         .flags = 0,
     };
 
-    auto dev = ublksrv_ctrl_init(&dev_data);
+    ublksrv_ctrl_dev_ptr dev{ublksrv_ctrl_init(&dev_data)};
     if (!dev)
         throw runtime_error("ublksrv_ctrl_init failed");
 
     // FIXME
-
-    ublksrv_ctrl_deinit(dev);
 }
 
 int main() {
