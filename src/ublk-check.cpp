@@ -48,6 +48,8 @@ struct demo_queue_info {
     jthread thread;
 };
 
+static const unsigned int SECTOR_SHIFT = 9; // 512-byte sectors
+
 static char jbuf[4096];
 static mutex jbuf_lock;
 static ublksrv_ctrl_dev_ptr ctrl_dev;
@@ -74,15 +76,35 @@ static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
     return 0;
 }
 
+static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& data) {
+    auto& iod = *data.iod;
+    unsigned int num_sectors = iod.nr_sectors;
+
+    print("demo_handle_io_async: UBLK_IO_OP_READ ({:x}, {:x})\n",
+          iod.start_sector, iod.nr_sectors, iod.addr);
+
+    if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
+        num_sectors = 0;
+    else if (iod.start_sector + iod.nr_sectors >= mapping->length >> SECTOR_SHIFT)
+        num_sectors = (mapping->length >> SECTOR_SHIFT) - iod.start_sector;
+
+    memcpy((void*)iod.addr,
+           mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
+           num_sectors << SECTOR_SHIFT);
+
+    ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
+
+    return num_sectors << SECTOR_SHIFT;
+}
+
 static int demo_handle_io_async(const struct ublksrv_queue* q,
                                 const struct ublk_io_data* data) {
     auto& iod = *data->iod;
 
     switch (ublksrv_get_op(&iod)) {
         case UBLK_IO_OP_READ:
-            print("demo_handle_io_async: UBLK_IO_OP_READ ({:x}, {:x}) (addr = {:x})\n",
-                  iod.start_sector, iod.nr_sectors, iod.addr);
-            break;
+            return do_read(*q, *data);
+
         case UBLK_IO_OP_WRITE:
             print("demo_handle_io_async: UBLK_IO_OP_WRITE ({:x}, {:x})\n",
                   iod.start_sector, iod.nr_sectors);
@@ -99,9 +121,9 @@ static int demo_handle_io_async(const struct ublksrv_queue* q,
             return -EINVAL;
     }
 
-    ublksrv_complete_io(q, data->tag, iod.nr_sectors << 9);
+    ublksrv_complete_io(q, data->tag, iod.nr_sectors << SECTOR_SHIFT);
 
-    return iod.nr_sectors << 9;
+    return iod.nr_sectors << SECTOR_SHIFT;
 }
 
 static const struct ublksrv_tgt_type demo_tgt_type = {
@@ -148,12 +170,12 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
     struct ublk_params p = {
         .types = UBLK_PARAM_TYPE_BASIC,
         .basic = {
-            .logical_bs_shift	= 9,
+            .logical_bs_shift	= SECTOR_SHIFT,
             .physical_bs_shift	= 12,
             .io_opt_shift		= 12,
-            .io_min_shift		= 9,
-            .max_sectors		= info.max_io_buf_bytes >> 9,
-            .dev_sectors		= dev->tgt.dev_size >> 9,
+            .io_min_shift		= SECTOR_SHIFT,
+            .max_sectors		= info.max_io_buf_bytes >> SECTOR_SHIFT,
+            .dev_sectors		= dev->tgt.dev_size >> SECTOR_SHIFT,
         },
     };
 
