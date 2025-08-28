@@ -82,47 +82,43 @@ static const struct ublksrv_tgt_type demo_tgt_type = {
     .name =  "demo_null",
 };
 
-static void* demo_null_io_handler_fn(void* data) {
-    auto& info = *(struct demo_queue_info*)data;
-    const struct ublksrv_dev* dev = info.dev;
-    auto& dinfo = *ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(dev));
-    auto dev_id = dinfo.dev_id;
-    auto q_id = info.qid;
+static void* demo_null_io_handler_fn(demo_queue_info* info) {
+    auto& dev = *info->dev;
+    auto& dinfo = *ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(&dev));
 
     sched_setscheduler(getpid(), SCHED_RR, nullptr);
 
     {
         lock_guard lock(jbuf_lock);
 
-        ublksrv_json_write_queue_info(ublksrv_get_ctrl_dev(dev), jbuf,
-                                      sizeof(jbuf), q_id, ublksrv_gettid());
-        ublksrv_tgt_store_dev_data(dev, jbuf);
+        ublksrv_json_write_queue_info(ublksrv_get_ctrl_dev(&dev), jbuf,
+                                      sizeof(jbuf), info->qid, ublksrv_gettid());
+        ublksrv_tgt_store_dev_data(&dev, jbuf);
     }
 
-    ublksrv_queue_ptr q{ublksrv_queue_init(dev, q_id, nullptr)};
+    ublksrv_queue_ptr q{ublksrv_queue_init(&dev, info->qid, nullptr)};
     if (!q) {
         fprintf(stderr, "ublk dev %d queue %d init queue failed\n",
-                dinfo.dev_id, q_id);
+                dinfo.dev_id, info->qid);
         return nullptr;
     }
 
-    fprintf(stdout, "tid %d: ublk dev %d queue %d started\n",
-            ublksrv_gettid(),
-            dev_id, q->q_id);
+    printf("tid %d: ublk dev %d queue %d started\n", ublksrv_gettid(), dinfo.dev_id,
+           q->q_id);
 
     while (true) {
         if (ublksrv_process_io(q.get()) < 0)
             break;
     }
 
-    fprintf(stdout, "ublk dev %d queue %d exited\n", dev_id, q->q_id);
+    printf("ublk dev %d queue %d exited\n", dinfo.dev_id, q->q_id);
 
     return nullptr;
 }
 
 static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
                                      const struct ublksrv_dev* dev) {
-    const struct ublksrv_ctrl_dev_info *info = ublksrv_ctrl_get_dev_info(cdev);
+    auto& info = *ublksrv_ctrl_get_dev_info(cdev);
     struct ublk_params p = {
         .types = UBLK_PARAM_TYPE_BASIC,
         .basic = {
@@ -130,11 +126,10 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
             .physical_bs_shift	= 12,
             .io_opt_shift		= 12,
             .io_min_shift		= 9,
-            .max_sectors		= info->max_io_buf_bytes >> 9,
+            .max_sectors		= info.max_io_buf_bytes >> 9,
             .dev_sectors		= dev->tgt.dev_size >> 9,
         },
     };
-    int ret;
 
     {
         lock_guard lock(jbuf_lock);
@@ -142,10 +137,8 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
         ublksrv_json_write_params(&p, jbuf, sizeof(jbuf));
     }
 
-    ret = ublksrv_ctrl_set_params(cdev, &p);
-    if (ret)
-        fprintf(stderr, "dev %d set basic parameter failed %d\n",
-                info->dev_id, ret);
+    if (auto ret = ublksrv_ctrl_set_params(cdev, &p); ret)
+        fprintf(stderr, "dev %d set basic parameter failed %d\n", info.dev_id, ret);
 }
 
 static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
