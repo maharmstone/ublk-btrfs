@@ -27,6 +27,15 @@ public:
 
 using ublksrv_dev_ptr = unique_ptr<const ublksrv_dev, ublksrv_dev_deleter>;
 
+class ublksrv_queue_deleter {
+public:
+    void operator()(const ublksrv_queue* q) {
+        ublksrv_queue_deinit(q);
+    }
+};
+
+using ublksrv_queue_ptr = unique_ptr<const ublksrv_queue, ublksrv_queue_deleter>;
+
 struct demo_queue_info {
     const struct ublksrv_dev* dev;
     int qid;
@@ -79,7 +88,6 @@ static void* demo_null_io_handler_fn(void* data) {
     auto& dinfo = *ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(dev));
     auto dev_id = dinfo.dev_id;
     auto q_id = info.qid;
-    const struct ublksrv_queue *q;
 
     sched_setscheduler(getpid(), SCHED_RR, nullptr);
 
@@ -91,7 +99,7 @@ static void* demo_null_io_handler_fn(void* data) {
         ublksrv_tgt_store_dev_data(dev, jbuf);
     }
 
-    q = ublksrv_queue_init(dev, q_id, NULL);
+    ublksrv_queue_ptr q{ublksrv_queue_init(dev, q_id, nullptr)};
     if (!q) {
         fprintf(stderr, "ublk dev %d queue %d init queue failed\n",
                 dinfo.dev_id, q_id);
@@ -103,12 +111,11 @@ static void* demo_null_io_handler_fn(void* data) {
             dev_id, q->q_id);
 
     while (true) {
-        if (ublksrv_process_io(q) < 0)
+        if (ublksrv_process_io(q.get()) < 0)
             break;
     }
 
     fprintf(stdout, "ublk dev %d queue %d exited\n", dev_id, q->q_id);
-    ublksrv_queue_deinit(q);
 
     return nullptr;
 }
