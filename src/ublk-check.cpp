@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <mutex>
 
 using namespace std;
 
@@ -32,7 +33,7 @@ struct demo_queue_info {
 };
 
 static char jbuf[4096];
-static pthread_mutex_t jbuf_lock;
+static mutex jbuf_lock;
 static ublksrv_ctrl_dev_ptr ctrl_dev;
 
 static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
@@ -81,11 +82,13 @@ static void* demo_null_io_handler_fn(void* data) {
 
     sched_setscheduler(getpid(), SCHED_RR, nullptr);
 
-    pthread_mutex_lock(&jbuf_lock);
-    ublksrv_json_write_queue_info(ublksrv_get_ctrl_dev(dev), jbuf, sizeof jbuf,
-                                  q_id, ublksrv_gettid());
-    ublksrv_tgt_store_dev_data(dev, jbuf);
-    pthread_mutex_unlock(&jbuf_lock);
+    {
+        lock_guard lock(jbuf_lock);
+
+        ublksrv_json_write_queue_info(ublksrv_get_ctrl_dev(dev), jbuf,
+                                      sizeof(jbuf), q_id, ublksrv_gettid());
+        ublksrv_tgt_store_dev_data(dev, jbuf);
+    }
 
     q = ublksrv_queue_init(dev, q_id, NULL);
     if (!q) {
@@ -125,9 +128,11 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
     };
     int ret;
 
-    pthread_mutex_lock(&jbuf_lock);
-    ublksrv_json_write_params(&p, jbuf, sizeof jbuf);
-    pthread_mutex_unlock(&jbuf_lock);
+    {
+        lock_guard lock(jbuf_lock);
+
+        ublksrv_json_write_params(&p, jbuf, sizeof(jbuf));
+    }
 
     ret = ublksrv_ctrl_set_params(cdev, &p);
     if (ret)
@@ -170,7 +175,7 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
     }
 }
 
-static void sig_handler(int sig) {
+static void sig_handler(int) {
     ublksrv_ctrl_stop_dev(ctrl_dev.get());
 }
 
