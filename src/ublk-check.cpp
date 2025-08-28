@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <ublksrv.h>
 #include <ublksrv_utils.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #include <print>
 
 import formatted_error;
+import mmap;
 
 using namespace std;
 
@@ -49,6 +51,7 @@ struct demo_queue_info {
 static char jbuf[4096];
 static mutex jbuf_lock;
 static ublksrv_ctrl_dev_ptr ctrl_dev;
+static optional<mmap> mapping;
 
 static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
                          char** /*argv*/) {
@@ -61,7 +64,7 @@ static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
 
     strcpy(tgt_json.name, "null");
 
-    tgt_json.dev_size = tgt.dev_size = 144UL * 1024 * 1024 * 1024;
+    tgt_json.dev_size = tgt.dev_size = mapping->length;
     tgt.tgt_ring_depth = info.queue_depth;
     tgt.nr_fds = 0;
 
@@ -77,8 +80,8 @@ static int demo_handle_io_async(const struct ublksrv_queue* q,
 
     switch (ublksrv_get_op(&iod)) {
         case UBLK_IO_OP_READ:
-            print("demo_handle_io_async: UBLK_IO_OP_READ ({:x}, {:x})\n",
-                  iod.start_sector, iod.nr_sectors);
+            print("demo_handle_io_async: UBLK_IO_OP_READ ({:x}, {:x}) (addr = {:x})\n",
+                  iod.start_sector, iod.nr_sectors, iod.addr);
             break;
         case UBLK_IO_OP_WRITE:
             print("demo_handle_io_async: UBLK_IO_OP_WRITE ({:x}, {:x})\n",
@@ -201,6 +204,21 @@ static void sig_handler(int) {
     ublksrv_ctrl_stop_dev(ctrl_dev.get());
 }
 
+static void open_backing_file(const char* fn) {
+    auto fd = open(fn, O_RDWR);
+    if (fd < 0)
+        throw formatted_error("{}: open failed (errno {})", fn, errno);
+
+    try {
+        mapping.emplace(fd);
+    } catch (...) {
+        close(fd);
+        throw;
+    }
+
+    close(fd);
+}
+
 static void ublk_check() {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
@@ -212,6 +230,8 @@ static void ublk_check() {
         .run_dir = ublksrv_get_pid_dir(),
         .flags = 0,
     };
+
+    open_backing_file("file"); // FIXME - solicit name
 
     ctrl_dev.reset(ublksrv_ctrl_init(&dev_data));
     if (!ctrl_dev)

@@ -14,9 +14,9 @@ import formatted_error;
 
 using namespace std;
 
-class mmap {
+export class mmap {
 public:
-    mmap(const char* filename);
+    mmap(int fd);
     mmap(mmap&& other);
     ~mmap();
 
@@ -28,26 +28,16 @@ public:
     size_t length;
 };
 
-mmap::mmap(const char* filename) {
-    auto fd = open(filename, O_RDONLY);
-    if (fd < 0)
-        throw formatted_error("{}: open failed (errno {})", filename, errno);
-
+mmap::mmap(int fd) {
     struct stat st;
-    if (fstat(fd, &st) == -1) {
-        close(fd);
-        throw formatted_error("{}: fstat failed (errno {})", filename, errno);
-    }
+    if (fstat(fd, &st) == -1)
+        throw formatted_error("fstat failed (errno {})", errno);
 
     length = st.st_size;
 
     addr = ::mmap(nullptr, length, PROT_READ, MAP_SHARED, fd, 0);
-    if (addr == MAP_FAILED) {
-        close(fd);
-        throw formatted_error("{}: mmap failed (errno {})", filename, errno);
-    }
-
-    close(fd);
+    if (addr == MAP_FAILED)
+        throw formatted_error("mmap failed (errno {})", errno);
 }
 
 mmap::mmap(mmap&& other) {
