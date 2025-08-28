@@ -20,7 +20,7 @@ public:
     mmap(mmap&& other);
     ~mmap();
 
-    span<const uint8_t> get_span() const {
+    span<uint8_t> get_span() const {
         return span((uint8_t*)addr, length);
     }
 
@@ -35,7 +35,7 @@ mmap::mmap(int fd) {
 
     length = st.st_size;
 
-    addr = ::mmap(nullptr, length, PROT_READ, MAP_SHARED, fd, 0);
+    addr = ::mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (addr == MAP_FAILED)
         throw formatted_error("mmap failed (errno {})", errno);
 }

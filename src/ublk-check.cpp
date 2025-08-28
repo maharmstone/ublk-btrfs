@@ -97,6 +97,26 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
     return num_sectors << SECTOR_SHIFT;
 }
 
+static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data) {
+    auto& iod = *data.iod;
+    unsigned int num_sectors = iod.nr_sectors;
+
+    print("demo_handle_io_async: UBLK_IO_OP_WRITE ({:x}, {:x})\n",
+          iod.start_sector, iod.nr_sectors, iod.addr);
+
+    if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
+        num_sectors = 0;
+    else if (iod.start_sector + iod.nr_sectors >= mapping->length >> SECTOR_SHIFT)
+        num_sectors = (mapping->length >> SECTOR_SHIFT) - iod.start_sector;
+
+    memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
+           (void*)iod.addr, num_sectors << SECTOR_SHIFT);
+
+    ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
+
+    return num_sectors << SECTOR_SHIFT;
+}
+
 static int demo_handle_io_async(const struct ublksrv_queue* q,
                                 const struct ublk_io_data* data) {
     auto& iod = *data->iod;
@@ -106,15 +126,16 @@ static int demo_handle_io_async(const struct ublksrv_queue* q,
             return do_read(*q, *data);
 
         case UBLK_IO_OP_WRITE:
-            print("demo_handle_io_async: UBLK_IO_OP_WRITE ({:x}, {:x})\n",
-                  iod.start_sector, iod.nr_sectors);
-            break;
+            return do_write(*q, *data);
+
         case UBLK_IO_OP_DISCARD:
             print("demo_handle_io_async: UBLK_IO_OP_DISCARD\n");
             break;
+
         case UBLK_IO_OP_FLUSH:
             print("demo_handle_io_async: UBLK_IO_OP_FLUSH\n");
             break;
+
         default:
             print("demo_handle_io_async: unrecognized op {}\n", ublksrv_get_op(&iod));
             ublksrv_complete_io(q, data->tag, -EINVAL);
