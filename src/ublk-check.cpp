@@ -9,6 +9,8 @@
 #include <format>
 #include <print>
 
+import formatted_error;
+
 using namespace std;
 
 class ublksrv_ctrl_dev_deleter {
@@ -84,7 +86,7 @@ static const struct ublksrv_tgt_type demo_tgt_type = {
     .name =  "demo_null",
 };
 
-static void* demo_null_io_handler_fn(demo_queue_info* info) {
+static void demo_null_io_handler_fn(demo_queue_info* info) {
     auto& dev = *info->dev;
     auto& dinfo = *ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(&dev));
 
@@ -100,9 +102,9 @@ static void* demo_null_io_handler_fn(demo_queue_info* info) {
 
     ublksrv_queue_ptr q{ublksrv_queue_init(&dev, info->qid, nullptr)};
     if (!q) {
-        fprintf(stderr, "ublk dev %d queue %d init queue failed\n",
-                dinfo.dev_id, info->qid);
-        return nullptr;
+        // FIXME - throw exception and return it to other thread
+        print(stderr, "ublk dev {} queue {} init queue failed\n", dinfo.dev_id, info->qid);
+        return;
     }
 
     print("tid {}: ublk dev {} queue {} started\n", ublksrv_gettid(),
@@ -114,8 +116,6 @@ static void* demo_null_io_handler_fn(demo_queue_info* info) {
     }
 
     print("ublk dev {} queue {} exited\n", dinfo.dev_id, q->q_id);
-
-    return nullptr;
 }
 
 static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
@@ -140,12 +140,12 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
     }
 
     if (auto ret = ublksrv_ctrl_set_params(cdev, &p); ret)
-        fprintf(stderr, "dev %d set basic parameter failed %d\n", info.dev_id, ret);
+        throw formatted_error("dev {} set basic parameter failed {}", info.dev_id, ret);
 }
 
 static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
     if (auto ret = ublksrv_ctrl_get_affinity(ctrl_dev); ret < 0)
-        throw runtime_error("ublksrv_ctrl_get_affinity failed"); // FIXME - include ret
+        throw formatted_error("ublksrv_ctrl_get_affinity failed (error {})", ret);
 
     const auto& dinfo = *ublksrv_ctrl_get_dev_info(ctrl_dev);
     vector<demo_queue_info> info_array;
@@ -166,7 +166,7 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
     demo_null_set_parameters(ctrl_dev, dev.get());
 
     if (auto ret = ublksrv_ctrl_start_dev(ctrl_dev, getpid()); ret < 0)
-        throw runtime_error("ublksrv_ctrl_start_dev failed"); // FIXME - include ret
+        throw formatted_error("ublksrv_ctrl_start_dev failed (error {})", ret);
 
     ublksrv_ctrl_get_info(ctrl_dev);
     ublksrv_ctrl_dump(ctrl_dev, jbuf);
@@ -197,13 +197,13 @@ static void ublk_check() {
         throw runtime_error("ublksrv_ctrl_init failed");
 
     if (signal(SIGTERM, sig_handler) == SIG_ERR)
-        throw runtime_error("signal failed"); // FIXME - include errno
+        throw formatted_error("signal failed (errno {})", errno);
 
     if (signal(SIGINT, sig_handler) == SIG_ERR)
-        throw runtime_error("signal failed"); // FIXME - include errno
+        throw formatted_error("signal failed (errno {})", errno);
 
     if (auto ret = ublksrv_ctrl_add_dev(ctrl_dev.get()); ret < 0)
-        throw runtime_error("ublksrv_ctrl_add_dev failed"); // FIXME - include ret
+        throw formatted_error("ublksrv_ctrl_add_dev failed (error {})", ret);
 
     try {
         start_daemon(ctrl_dev.get());

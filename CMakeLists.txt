@@ -13,6 +13,9 @@ pkg_check_modules(UBLKSRV REQUIRED IMPORTED_TARGET ublksrv)
 
 add_executable(ublk-check src/ublk-check.cpp)
 
+target_sources(ublk-check PUBLIC FILE_SET CXX_MODULES FILES
+    src/formatted_error.cpp)
+
 target_compile_options(ublk-check PUBLIC -Wall -Wextra -Wno-unqualified-std-cast-call -Wno-missing-field-initializers)
 
 target_link_libraries(ublk-check PkgConfig::UBLKSRV)
