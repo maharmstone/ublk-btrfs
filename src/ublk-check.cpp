@@ -129,7 +129,8 @@ static int demo_handle_io_async(const struct ublksrv_queue* q,
             return do_write(*q, *data);
 
         case UBLK_IO_OP_DISCARD:
-            print("demo_handle_io_async: UBLK_IO_OP_DISCARD\n");
+            print("demo_handle_io_async: UBLK_IO_OP_DISCARD ({:x}, {:x})\n",
+                  iod.start_sector, iod.nr_sectors);
             break;
 
         case UBLK_IO_OP_FLUSH:
@@ -189,7 +190,7 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
                                      const struct ublksrv_dev* dev) {
     auto& info = *ublksrv_ctrl_get_dev_info(cdev);
     struct ublk_params p = {
-        .types = UBLK_PARAM_TYPE_BASIC,
+        .types = UBLK_PARAM_TYPE_BASIC | UBLK_PARAM_TYPE_DISCARD,
         .basic = {
             .logical_bs_shift	= SECTOR_SHIFT,
             .physical_bs_shift	= 12,
@@ -198,6 +199,11 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
             .max_sectors		= info.max_io_buf_bytes >> SECTOR_SHIFT,
             .dev_sectors		= dev->tgt.dev_size >> SECTOR_SHIFT,
         },
+        .discard = {
+            .discard_granularity = 1 << SECTOR_SHIFT,
+            .max_discard_sectors = UINT_MAX >> SECTOR_SHIFT,
+            .max_discard_segments = 1,
+        }
     };
 
     {
