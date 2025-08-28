@@ -6,6 +6,8 @@
 #include <vector>
 #include <mutex>
 #include <thread>
+#include <format>
+#include <print>
 
 using namespace std;
 
@@ -103,15 +105,15 @@ static void* demo_null_io_handler_fn(demo_queue_info* info) {
         return nullptr;
     }
 
-    printf("tid %d: ublk dev %d queue %d started\n", ublksrv_gettid(), dinfo.dev_id,
-           q->q_id);
+    print("tid {}: ublk dev {} queue {} started\n", ublksrv_gettid(),
+          dinfo.dev_id, q->q_id);
 
     while (true) {
         if (ublksrv_process_io(q.get()) < 0)
             break;
     }
 
-    printf("ublk dev %d queue %d exited\n", dinfo.dev_id, q->q_id);
+    print("ublk dev {} queue {} exited\n", dinfo.dev_id, q->q_id);
 
     return nullptr;
 }
