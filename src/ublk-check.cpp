@@ -73,11 +73,32 @@ static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
 
 static int demo_handle_io_async(const struct ublksrv_queue* q,
                                 const struct ublk_io_data* data) {
-    const struct ublksrv_io_desc* iod = data->iod;
+    auto& iod = *data->iod;
 
-    ublksrv_complete_io(q, data->tag, iod->nr_sectors << 9);
+    switch (ublksrv_get_op(&iod)) {
+        case UBLK_IO_OP_READ:
+            print("demo_handle_io_async: UBLK_IO_OP_READ ({:x}, {:x})\n",
+                  iod.start_sector, iod.nr_sectors);
+            break;
+        case UBLK_IO_OP_WRITE:
+            print("demo_handle_io_async: UBLK_IO_OP_WRITE ({:x}, {:x})\n",
+                  iod.start_sector, iod.nr_sectors);
+            break;
+        case UBLK_IO_OP_DISCARD:
+            print("demo_handle_io_async: UBLK_IO_OP_DISCARD\n");
+            break;
+        case UBLK_IO_OP_FLUSH:
+            print("demo_handle_io_async: UBLK_IO_OP_FLUSH\n");
+            break;
+        default:
+            print("demo_handle_io_async: unrecognized op {}\n", ublksrv_get_op(&iod));
+            ublksrv_complete_io(q, data->tag, -EINVAL);
+            return -EINVAL;
+    }
 
-    return 0;
+    ublksrv_complete_io(q, data->tag, iod.nr_sectors << 9);
+
+    return iod.nr_sectors << 9;
 }
 
 static const struct ublksrv_tgt_type demo_tgt_type = {
