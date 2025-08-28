@@ -33,6 +33,7 @@ struct demo_queue_info {
 
 static char jbuf[4096];
 static pthread_mutex_t jbuf_lock;
+static ublksrv_ctrl_dev_ptr ctrl_dev;
 
 static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
                          char** /*argv*/) {
@@ -169,6 +170,10 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
     }
 }
 
+static void sig_handler(int sig) {
+    ublksrv_ctrl_stop_dev(ctrl_dev.get());
+}
+
 static void ublk_check() {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
@@ -181,21 +186,27 @@ static void ublk_check() {
         .flags = 0,
     };
 
-    ublksrv_ctrl_dev_ptr dev{ublksrv_ctrl_init(&dev_data)};
-    if (!dev)
+    ctrl_dev.reset(ublksrv_ctrl_init(&dev_data));
+    if (!ctrl_dev)
         throw runtime_error("ublksrv_ctrl_init failed");
 
-    if (auto ret = ublksrv_ctrl_add_dev(dev.get()); ret < 0)
+    if (signal(SIGTERM, sig_handler) == SIG_ERR)
+        throw runtime_error("signal failed"); // FIXME - include errno
+
+    if (signal(SIGINT, sig_handler) == SIG_ERR)
+        throw runtime_error("signal failed"); // FIXME - include errno
+
+    if (auto ret = ublksrv_ctrl_add_dev(ctrl_dev.get()); ret < 0)
         throw runtime_error("ublksrv_ctrl_add_dev failed"); // FIXME - include ret
 
     try {
-        start_daemon(dev.get());
+        start_daemon(ctrl_dev.get());
     } catch (...) {
-        ublksrv_ctrl_del_dev(dev.get());
+        ublksrv_ctrl_del_dev(ctrl_dev.get());
         throw;
     }
 
-    ublksrv_ctrl_del_dev(dev.get());
+    ublksrv_ctrl_del_dev(ctrl_dev.get());
 }
 
 int main() {
