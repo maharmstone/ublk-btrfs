@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <mutex>
+#include <thread>
 
 using namespace std;
 
@@ -29,7 +30,7 @@ using ublksrv_dev_ptr = unique_ptr<const ublksrv_dev, ublksrv_dev_deleter>;
 struct demo_queue_info {
     const struct ublksrv_dev* dev;
     int qid;
-    pthread_t thread;
+    jthread thread;
 };
 
 static char jbuf[4096];
@@ -156,8 +157,8 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
     for (unsigned int i = 0; i < dinfo.nr_hw_queues; i++) {
         info_array[i].dev = dev.get();
         info_array[i].qid = i;
-        pthread_create(&info_array[i].thread, nullptr, demo_null_io_handler_fn,
-                       &info_array[i]);
+
+        info_array[i].thread = jthread(demo_null_io_handler_fn, &info_array[i]);
     }
 
     demo_null_set_parameters(ctrl_dev, dev.get());
@@ -169,9 +170,7 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
     ublksrv_ctrl_dump(ctrl_dev, jbuf);
 
     for (auto& a : info_array) {
-        void* thread_ret;
-
-        pthread_join(a.thread, &thread_ret);
+        a.thread.join();
     }
 }
 
