@@ -7,9 +7,15 @@ project(ublk-check)
 
 include(GNUInstallDirs)
 
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(UBLKSRV REQUIRED IMPORTED_TARGET ublksrv)
+
 add_executable(ublk-check src/ublk-check.cpp)
 
 target_compile_options(ublk-check PUBLIC -Wall -Wextra -Wno-unqualified-std-cast-call)
+
+target_link_libraries(ublk-check PkgConfig::UBLKSRV)
 
 install(TARGETS ublk-check DESTINATION ${CMAKE_INSTALL_BINDIR}
     CXX_MODULES_BMI EXCLUDE_FROM_ALL
