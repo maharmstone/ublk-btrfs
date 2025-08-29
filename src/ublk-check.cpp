@@ -100,6 +100,35 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
 
 static void do_check() {
     print("FIXME - run btrfs check\n");
+
+    auto pid = fork();
+
+    if (pid == -1)
+        throw formatted_error("fork failed (errno {})", errno);
+    else if (pid != 0) {
+        int status;
+
+        if (waitpid(pid, &status, 0) == -1)
+            throw formatted_error("waitpid failed (errno {})", errno);
+
+        print("btrfs check returned {}\n", status);
+
+        return;
+    }
+
+    const char* argv[] = {
+        "/sbin/btrfs",
+        "check",
+        "--help", // FIXME
+        nullptr
+    };
+
+    if (execve(argv[0], (char**)argv, nullptr)) {
+        print(stderr, "execve failed (errno {})\n", errno);
+        exit(1);
+    }
+
+    // doesn't return
 }
 
 static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data) {
@@ -119,11 +148,14 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
         return 0;
     }
 
+    // FIXME - recognize and handle partitions
+
     // FIXME - block here if superblock currently being checked
 
     memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
            (void*)iod.addr, num_sectors << SECTOR_SHIFT);
 
+    // FIXME - only if btrfs magic still in superblock?
     if (iod.start_sector << SECTOR_SHIFT <= btrfs::superblock_addrs[0] &&
         (iod.start_sector + iod.nr_sectors) << SECTOR_SHIFT > btrfs::superblock_addrs[0]) {
         do_check();
