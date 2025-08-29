@@ -276,8 +276,7 @@ static void ublk_check() {
         .queue_depth = DEF_QD,
         .tgt_type = "demo_null",
         .tgt_ops = &demo_tgt_type,
-        .run_dir = ublksrv_get_pid_dir(),
-        .flags = 0,
+        .flags = UBLK_F_UNPRIVILEGED_DEV,
     };
 
     open_backing_file("file"); // FIXME - solicit name
