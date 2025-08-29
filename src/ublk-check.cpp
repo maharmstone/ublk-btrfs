@@ -98,6 +98,10 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
     return num_sectors << SECTOR_SHIFT;
 }
 
+static void do_check() {
+    print("FIXME - run btrfs check\n");
+}
+
 static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data) {
     auto& iod = *data.iod;
     unsigned int num_sectors = iod.nr_sectors;
@@ -110,8 +114,20 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     else if (iod.start_sector + iod.nr_sectors >= mapping->length >> SECTOR_SHIFT)
         num_sectors = (mapping->length >> SECTOR_SHIFT) - iod.start_sector;
 
+    if (num_sectors == 0) {
+        ublksrv_complete_io(&q, data.tag, 0);
+        return 0;
+    }
+
+    // FIXME - block here if superblock currently being checked
+
     memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
            (void*)iod.addr, num_sectors << SECTOR_SHIFT);
+
+    if (iod.start_sector << SECTOR_SHIFT <= btrfs::superblock_addrs[0] &&
+        (iod.start_sector + iod.nr_sectors) << SECTOR_SHIFT > btrfs::superblock_addrs[0]) {
+        do_check();
+    }
 
     ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
 
