@@ -217,6 +217,9 @@ static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
 }
 
 static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
+    // FIXME - unprivileged ublksrv_ctrl_get_affinity returns EACCES without a wait(??)
+    this_thread::sleep_for(chrono::milliseconds{100});
+
     if (auto ret = ublksrv_ctrl_get_affinity(ctrl_dev); ret < 0)
         throw formatted_error("ublksrv_ctrl_get_affinity failed (error {})", ret);
 
