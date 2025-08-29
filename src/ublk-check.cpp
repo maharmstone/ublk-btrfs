@@ -12,6 +12,7 @@
 
 import formatted_error;
 import mmap;
+import cxxbtrfs;
 
 using namespace std;
 
