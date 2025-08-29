@@ -99,8 +99,6 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
 }
 
 static void do_check() {
-    print("FIXME - run btrfs check\n");
-
     auto pid = fork();
 
     if (pid == -1)
@@ -111,19 +109,31 @@ static void do_check() {
         if (waitpid(pid, &status, 0) == -1)
             throw formatted_error("waitpid failed (errno {})", errno);
 
-        print("btrfs check returned {}\n", status);
+        if (status == 0)
+            print("btrfs check passed\n");
+        else
+            print("btrfs check returned {}\n", status);
 
         return;
     }
 
-    const char* argv[] = {
-        "/sbin/btrfs",
-        "check",
-        "--help", // FIXME
-        nullptr
-    };
+    vector<string> argv;
 
-    if (execve(argv[0], (char**)argv, nullptr)) {
+    argv.push_back("/sbin/btrfs");
+    argv.push_back("check");
+    argv.push_back("--force");
+    argv.push_back("file"); // FIXME
+
+    vector<char*> argv2;
+
+    for (auto& s : argv) {
+        argv2.push_back((char*)s.c_str());
+    }
+    argv2.push_back(nullptr);
+
+    // FIXME - close stdout and replace with /dev/null?
+
+    if (execve(argv[0].c_str(), (char**)argv2.data(), nullptr)) {
         print(stderr, "execve failed (errno {})\n", errno);
         exit(1);
     }
