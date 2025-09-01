@@ -149,7 +149,14 @@ static void do_check() {
             }
 
             if (fds[0].revents & POLLIN)
-                break; // FIXME - get status
+                break;
+        }
+
+        if (waitpid(pid, &status, 0) == -1) { // already dead, should return immediately
+            auto e = errno;
+            close(pipefds[0]);
+            close(pidfd);
+            throw formatted_error("waitpid failed (errno {})", e);
         }
 
         if (status == 0)
