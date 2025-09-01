@@ -75,7 +75,7 @@ static int init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
         .type = type
     };
 
-    strcpy(tgt_json.name, "ublk-check");
+    strcpy(tgt_json.name, "ublk-btrfs-check");
 
     tgt_json.dev_size = tgt.dev_size = mapping->length;
     tgt.tgt_ring_depth = info.queue_depth;
@@ -342,7 +342,7 @@ static int handle_io_async(const struct ublksrv_queue* q,
 static const struct ublksrv_tgt_type tgt_type = {
     .handle_io_async = handle_io_async,
     .init_tgt = init_tgt,
-    .name =  "ublk-check",
+    .name =  "ublk-btrfs-check",
 };
 
 static void io_handler_fn(queue_info* info, const run_params& params) {
@@ -468,7 +468,7 @@ static void ublk_check(string_view fn, bool do_trace) {
         .max_io_buf_bytes = DEF_BUF_SIZE,
         .nr_hw_queues = DEF_NR_HW_QUEUES,
         .queue_depth = DEF_QD,
-        .tgt_type = "ublk-check",
+        .tgt_type = "ublk-btrfs-check",
         .tgt_ops = &tgt_type,
         .flags = UBLK_F_UNPRIVILEGED_DEV,
     };
@@ -533,7 +533,7 @@ int main(int argc, char** argv) {
     }
 
     if (print_usage || optind != argc - 1) {
-        fprintf(stderr, R"(Usage: ublk-check [options] <file>
+        fprintf(stderr, R"(Usage: ublk-btrfs-check [options] <file>
 
     Start a ublk device which does btrfs checking.
 
