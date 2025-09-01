@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <getopt.h>
 #include <linux/sched.h>
 #include <poll.h>
 #include <ublksrv.h>
@@ -264,7 +265,7 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
 
     // FIXME - recognize and handle partitions?
 
-    auto do_write = [](auto& iod, unsigned int num_sectors) {
+    auto write = [](auto& iod, unsigned int num_sectors) {
         memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
                (void*)iod.addr, num_sectors << SECTOR_SHIFT);
     };
@@ -273,7 +274,7 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
         (iod.start_sector + iod.nr_sectors) << SECTOR_SHIFT > btrfs::superblock_addrs[0]) {
         unique_lock lock(write_mutex);
 
-        do_write(iod, num_sectors);
+        write(iod, num_sectors);
 
         auto& sb = *(btrfs::super_block*)(uintptr_t)(iod.addr + btrfs::superblock_addrs[0] - (iod.start_sector << SECTOR_SHIFT));
 
@@ -285,11 +286,10 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     } else {
         shared_lock lock(write_mutex);
 
-        do_write(iod, num_sectors);
+        write(iod, num_sectors);
 
         ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
     }
-
 
     return num_sectors << SECTOR_SHIFT;
 }
@@ -448,7 +448,7 @@ static void open_backing_file(const char* fn) {
     close(fd);
 }
 
-static void ublk_check() {
+static void ublk_check(string_view fn, bool do_trace) {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
         .max_io_buf_bytes = DEF_BUF_SIZE,
@@ -459,7 +459,7 @@ static void ublk_check() {
         .flags = UBLK_F_UNPRIVILEGED_DEV,
     };
 
-    open_backing_file("file"); // FIXME - solicit name
+    open_backing_file(string{fn}.c_str());
 
     ctrl_dev.reset(ublksrv_ctrl_init(&dev_data));
     if (!ctrl_dev)
@@ -484,9 +484,51 @@ static void ublk_check() {
     ublksrv_ctrl_del_dev(ctrl_dev.get());
 }
 
-int main() {
+int main(int argc, char** argv) {
+    bool do_trace = false, print_usage = false;
+
+    while (true) {
+        enum {
+            GETOPT_VAL_HELP
+        };
+
+        static const option long_opts[] = {
+            { "trace", no_argument, nullptr, 't' },
+            { "help", no_argument, nullptr, GETOPT_VAL_HELP },
+            { nullptr, 0, nullptr, 0 }
+        };
+
+        auto c = getopt_long(argc, argv, "t", long_opts, nullptr);
+        if (c < 0)
+            break;
+
+        switch (c) {
+            case 't':
+                do_trace = true;
+                break;
+            case GETOPT_VAL_HELP:
+            case '?':
+                print_usage = true;
+                break;
+        }
+    }
+
+    if (print_usage || optind != argc - 1) {
+        fprintf(stderr, R"(Usage: ublk-check [options] <file>
+
+    Start a ublk device which does btrfs checking.
+
+    Options:
+    -t|--trace          print commands as we receive them
+    --help              print this screen
+)");
+        return 1;
+    }
+
+    auto fn = string_view(argv[optind]);
+
     try {
-        ublk_check();
+        ublk_check(fn, do_trace);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
     }
