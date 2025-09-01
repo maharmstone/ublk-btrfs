@@ -131,7 +131,20 @@ static void do_check() {
     }
     argv2.push_back(nullptr);
 
-    // FIXME - close stdout and replace with /dev/null?
+    // FIXME - replace stderr with pipe, and only print output if we fail?
+
+    // replace stdout with /dev/null
+    auto devnull = open("/dev/null", O_WRONLY);
+    if (devnull < 0)
+        throw formatted_error("open failed for /dev/null (errno {})", errno);
+
+    if (dup3(devnull, STDOUT_FILENO, 0) < 0) {
+        auto e = errno;
+        close(devnull);
+        throw formatted_error("dup3 failed for /dev/null (errno {})", e);
+    }
+
+    close(devnull);
 
     if (execve(argv[0].c_str(), (char**)argv2.data(), nullptr)) {
         print(stderr, "execve failed (errno {})\n", errno);
