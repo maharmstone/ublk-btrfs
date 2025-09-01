@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <linux/sched.h>
+#include <poll.h>
 #include <ublksrv.h>
 #include <ublksrv_utils.h>
 #include <string.h>
@@ -110,12 +111,14 @@ static void do_check() {
         throw formatted_error("pipe failed (errno {})", errno);
 
     clone_args ca;
+    int pidfd = 0;
     pid_t parent_tid = -1;
 
     memset(&ca, 0, sizeof(ca));
 
     ca.parent_tid = (uint64_t)(uintptr_t)&parent_tid;
-    ca.flags = CLONE_PARENT_SETTID;
+    ca.pidfd = (uint64_t)(uintptr_t)&pidfd;
+    ca.flags = CLONE_PARENT_SETTID | CLONE_PIDFD;
     ca.exit_signal = SIGCHLD;
 
     auto pid = sys_clone3(&ca);
@@ -127,11 +130,26 @@ static void do_check() {
 
         close(pipefds[1]);
 
-        // FIXME - read from stderr pipe (pipefds[0]);
+        // FIXME - read from stderr pipe (pipefds[0])
 
-        if (waitpid(pid, &status, 0) == -1) {
-            close(pipefds[0]);
-            throw formatted_error("waitpid failed (errno {})", errno);
+        while (true) {
+            array<pollfd, 1> fds;
+
+            fds[0].fd = pidfd;
+            fds[0].events = POLLIN;
+            fds[0].revents = 0;
+
+            auto ret = poll(fds.data(), fds.size(), -1);
+
+            if (ret == -1) {
+                if (errno == EINTR)
+                    continue;
+                else
+                    throw formatted_error("poll failed (errno {})", errno);
+            }
+
+            if (fds[0].revents & POLLIN)
+                break; // FIXME - get status
         }
 
         if (status == 0)
@@ -142,6 +160,7 @@ static void do_check() {
         // FIXME - print stderr output if we fail
 
         close(pipefds[0]);
+        close(pidfd);
 
         return;
     }
