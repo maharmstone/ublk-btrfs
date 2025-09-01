@@ -126,7 +126,7 @@ static void do_check() {
     if (pid == -1)
         throw formatted_error("clone3 failed (errno {})", errno);
     else if (pid != 0) {
-        int status;
+        siginfo_t siginfo;
 
         close(pipefds[1]);
 
@@ -152,17 +152,17 @@ static void do_check() {
                 break;
         }
 
-        if (waitpid(pid, &status, 0) == -1) { // already dead, should return immediately
+        if (waitid(P_PIDFD, pidfd, &siginfo, WEXITED) < 0) { // already dead, should return immediately
             auto e = errno;
             close(pipefds[0]);
             close(pidfd);
-            throw formatted_error("waitpid failed (errno {})", e);
+            throw formatted_error("waitid failed (errno {})", e);
         }
 
-        if (status == 0)
+        if (siginfo.si_status == 0)
             print("btrfs check passed\n");
         else
-            print("btrfs check returned {}\n", status);
+            print("btrfs check returned {}\n", siginfo.si_status);
 
         // FIXME - print stderr output if we fail
 
