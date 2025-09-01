@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <linux/sched.h>
 #include <ublksrv.h>
 #include <ublksrv_utils.h>
 #include <string.h>
@@ -98,16 +99,29 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
     return num_sectors << SECTOR_SHIFT;
 }
 
+static pid_t sys_clone3(clone_args* args) {
+    return syscall(__NR_clone3, args, sizeof(clone_args));
+}
+
 static void do_check() {
     int pipefds[2];
 
     if (auto ret = pipe(pipefds); ret < 0)
         throw formatted_error("pipe failed (errno {})", errno);
 
-    auto pid = fork();
+    clone_args ca;
+    pid_t parent_tid = -1;
+
+    memset(&ca, 0, sizeof(ca));
+
+    ca.parent_tid = (uint64_t)(uintptr_t)&parent_tid;
+    ca.flags = CLONE_PARENT_SETTID;
+    ca.exit_signal = SIGCHLD;
+
+    auto pid = sys_clone3(&ca);
 
     if (pid == -1)
-        throw formatted_error("fork failed (errno {})", errno);
+        throw formatted_error("clone3 failed (errno {})", errno);
     else if (pid != 0) {
         int status;
 
