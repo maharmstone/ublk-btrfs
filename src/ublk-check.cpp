@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 #include <mutex>
+#include <shared_mutex>
 #include <thread>
 #include <format>
 #include <print>
@@ -57,6 +58,7 @@ static char jbuf[4096];
 static mutex jbuf_lock;
 static ublksrv_ctrl_dev_ptr ctrl_dev;
 static optional<mmap> mapping;
+static shared_mutex write_mutex;
 
 static int init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
                     char** /*argv*/) {
@@ -260,23 +262,34 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
         return 0;
     }
 
-    // FIXME - recognize and handle partitions
+    // FIXME - recognize and handle partitions?
 
-    // FIXME - block here if superblock currently being checked
-
-    memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
-           (void*)iod.addr, num_sectors << SECTOR_SHIFT);
+    auto do_write = [](auto& iod, unsigned int num_sectors) {
+        memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
+               (void*)iod.addr, num_sectors << SECTOR_SHIFT);
+    };
 
     if (iod.start_sector << SECTOR_SHIFT <= btrfs::superblock_addrs[0] &&
         (iod.start_sector + iod.nr_sectors) << SECTOR_SHIFT > btrfs::superblock_addrs[0]) {
+        unique_lock lock(write_mutex);
+
+        do_write(iod, num_sectors);
+
         auto& sb = *(btrfs::super_block*)(uintptr_t)(iod.addr + btrfs::superblock_addrs[0] - (iod.start_sector << SECTOR_SHIFT));
 
         // ignore if btrfs magic no longer in superblock
         if (sb.magic == btrfs::MAGIC)
             do_check(sb.generation);
+
+        ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
+    } else {
+        shared_lock lock(write_mutex);
+
+        do_write(iod, num_sectors);
+
+        ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
     }
 
-    ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
 
     return num_sectors << SECTOR_SHIFT;
 }
