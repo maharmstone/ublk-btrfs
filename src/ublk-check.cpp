@@ -45,7 +45,7 @@ public:
 
 using ublksrv_queue_ptr = unique_ptr<const ublksrv_queue, ublksrv_queue_deleter>;
 
-struct demo_queue_info {
+struct queue_info {
     const struct ublksrv_dev* dev;
     int qid;
     jthread thread;
@@ -58,8 +58,8 @@ static mutex jbuf_lock;
 static ublksrv_ctrl_dev_ptr ctrl_dev;
 static optional<mmap> mapping;
 
-static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
-                         char** /*argv*/) {
+static int init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
+                    char** /*argv*/) {
     auto& info = *ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(dev));
     auto& tgt = dev->tgt;
 
@@ -67,7 +67,7 @@ static int demo_init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
         .type = type
     };
 
-    strcpy(tgt_json.name, "null");
+    strcpy(tgt_json.name, "ublk-check");
 
     tgt_json.dev_size = tgt.dev_size = mapping->length;
     tgt.tgt_ring_depth = info.queue_depth;
@@ -83,8 +83,7 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
     auto& iod = *data.iod;
     unsigned int num_sectors = iod.nr_sectors;
 
-    print("demo_handle_io_async: UBLK_IO_OP_READ ({:x}, {:x})\n",
-          iod.start_sector, iod.nr_sectors, iod.addr);
+    print("UBLK_IO_OP_READ ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
 
     if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
         num_sectors = 0;
@@ -249,8 +248,7 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     auto& iod = *data.iod;
     unsigned int num_sectors = iod.nr_sectors;
 
-    print("demo_handle_io_async: UBLK_IO_OP_WRITE ({:x}, {:x})\n",
-          iod.start_sector, iod.nr_sectors, iod.addr);
+    print("UBLK_IO_OP_WRITE ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
 
     if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
         num_sectors = 0;
@@ -283,8 +281,8 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     return num_sectors << SECTOR_SHIFT;
 }
 
-static int demo_handle_io_async(const struct ublksrv_queue* q,
-                                const struct ublk_io_data* data) {
+static int handle_io_async(const struct ublksrv_queue* q,
+                           const struct ublk_io_data* data) {
     auto& iod = *data->iod;
 
     switch (ublksrv_get_op(&iod)) {
@@ -295,16 +293,16 @@ static int demo_handle_io_async(const struct ublksrv_queue* q,
             return do_write(*q, *data);
 
         case UBLK_IO_OP_DISCARD:
-            print("demo_handle_io_async: UBLK_IO_OP_DISCARD ({:x}, {:x})\n",
+            print("handle_io_async: UBLK_IO_OP_DISCARD ({:x}, {:x})\n",
                   iod.start_sector, iod.nr_sectors);
             break;
 
         case UBLK_IO_OP_FLUSH:
-            print("demo_handle_io_async: UBLK_IO_OP_FLUSH\n");
+            print("handle_io_async: UBLK_IO_OP_FLUSH\n");
             break;
 
         default:
-            print("demo_handle_io_async: unrecognized op {}\n", ublksrv_get_op(&iod));
+            print("handle_io_async: unrecognized op {}\n", ublksrv_get_op(&iod));
             ublksrv_complete_io(q, data->tag, -EINVAL);
             return -EINVAL;
     }
@@ -314,13 +312,13 @@ static int demo_handle_io_async(const struct ublksrv_queue* q,
     return iod.nr_sectors << SECTOR_SHIFT;
 }
 
-static const struct ublksrv_tgt_type demo_tgt_type = {
-    .handle_io_async = demo_handle_io_async,
-    .init_tgt = demo_init_tgt,
-    .name =  "demo_null",
+static const struct ublksrv_tgt_type tgt_type = {
+    .handle_io_async = handle_io_async,
+    .init_tgt = init_tgt,
+    .name =  "ublk-check",
 };
 
-static void demo_null_io_handler_fn(demo_queue_info* info) {
+static void io_handler_fn(queue_info* info) {
     auto& dev = *info->dev;
     auto& dinfo = *ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(&dev));
 
@@ -352,8 +350,8 @@ static void demo_null_io_handler_fn(demo_queue_info* info) {
     print("ublk dev {} queue {} exited\n", dinfo.dev_id, q->q_id);
 }
 
-static void demo_null_set_parameters(struct ublksrv_ctrl_dev* cdev,
-                                     const struct ublksrv_dev* dev) {
+static void set_parameters(struct ublksrv_ctrl_dev* cdev,
+                           const struct ublksrv_dev* dev) {
     auto& info = *ublksrv_ctrl_get_dev_info(cdev);
     struct ublk_params p = {
         .types = UBLK_PARAM_TYPE_BASIC | UBLK_PARAM_TYPE_DISCARD,
@@ -390,7 +388,7 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
         throw formatted_error("ublksrv_ctrl_get_affinity failed (error {})", ret);
 
     const auto& dinfo = *ublksrv_ctrl_get_dev_info(ctrl_dev);
-    vector<demo_queue_info> info_array;
+    vector<queue_info> info_array;
 
     info_array.resize(dinfo.nr_hw_queues);
 
@@ -402,10 +400,10 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
         info_array[i].dev = dev.get();
         info_array[i].qid = i;
 
-        info_array[i].thread = jthread(demo_null_io_handler_fn, &info_array[i]);
+        info_array[i].thread = jthread(io_handler_fn, &info_array[i]);
     }
 
-    demo_null_set_parameters(ctrl_dev, dev.get());
+    set_parameters(ctrl_dev, dev.get());
 
     if (auto ret = ublksrv_ctrl_start_dev(ctrl_dev, getpid()); ret < 0)
         throw formatted_error("ublksrv_ctrl_start_dev failed (error {})", ret);
@@ -443,8 +441,8 @@ static void ublk_check() {
         .max_io_buf_bytes = DEF_BUF_SIZE,
         .nr_hw_queues = DEF_NR_HW_QUEUES,
         .queue_depth = DEF_QD,
-        .tgt_type = "demo_null",
-        .tgt_ops = &demo_tgt_type,
+        .tgt_type = "ublk-check",
+        .tgt_ops = &tgt_type,
         .flags = UBLK_F_UNPRIVILEGED_DEV,
     };
 
