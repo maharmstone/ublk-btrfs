@@ -127,28 +127,57 @@ static void do_check() {
         throw formatted_error("clone3 failed (errno {})", errno);
     else if (pid != 0) {
         siginfo_t siginfo;
+        string check_stderr;
 
         close(pipefds[1]);
 
         // FIXME - read from stderr pipe (pipefds[0])
 
         while (true) {
-            array<pollfd, 1> fds;
+            array<pollfd, 2> fds;
 
-            fds[0].fd = pidfd;
+            fds[0].fd = pipefds[0];
             fds[0].events = POLLIN;
             fds[0].revents = 0;
+
+            fds[1].fd = pidfd;
+            fds[1].events = POLLIN;
+            fds[1].revents = 0;
 
             auto ret = poll(fds.data(), fds.size(), -1);
 
             if (ret == -1) {
                 if (errno == EINTR)
                     continue;
-                else
-                    throw formatted_error("poll failed (errno {})", errno);
+                else {
+                    auto e = errno;
+                    close(pipefds[0]);
+                    close(pidfd);
+                    throw formatted_error("poll failed (errno {})", e);
+                }
             }
 
-            if (fds[0].revents & POLLIN)
+            if (fds[0].revents & POLLIN) {
+                char buf[4096];
+
+                ret = read(pipefds[0], buf, sizeof(buf));
+                if (ret < 0) {
+                    if (errno == EINTR)
+                        continue;
+                    else {
+                        auto e = errno;
+                        close(pipefds[0]);
+                        close(pidfd);
+                        throw formatted_error("read failed (errno {})", e);
+                    }
+                }
+
+                check_stderr.append(string_view(buf, ret));
+
+                continue;
+            }
+
+            if (fds[1].revents & POLLIN)
                 break;
         }
 
@@ -161,10 +190,10 @@ static void do_check() {
 
         if (siginfo.si_status == 0)
             print("btrfs check passed\n");
-        else
-            print("btrfs check returned {}\n", siginfo.si_status);
-
-        // FIXME - print stderr output if we fail
+        else {
+            print(stderr, "{}", check_stderr);
+            print(stderr, "btrfs check returned {}\n", siginfo.si_status);
+        }
 
         close(pipefds[0]);
         close(pidfd);
