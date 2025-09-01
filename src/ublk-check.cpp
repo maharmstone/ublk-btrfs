@@ -99,6 +99,11 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
 }
 
 static void do_check() {
+    int pipefds[2];
+
+    if (auto ret = pipe(pipefds); ret < 0)
+        throw formatted_error("pipe failed (errno {})", errno);
+
     auto pid = fork();
 
     if (pid == -1)
@@ -106,16 +111,28 @@ static void do_check() {
     else if (pid != 0) {
         int status;
 
-        if (waitpid(pid, &status, 0) == -1)
+        close(pipefds[1]);
+
+        // FIXME - read from stderr pipe (pipefds[0]);
+
+        if (waitpid(pid, &status, 0) == -1) {
+            close(pipefds[0]);
             throw formatted_error("waitpid failed (errno {})", errno);
+        }
 
         if (status == 0)
             print("btrfs check passed\n");
         else
             print("btrfs check returned {}\n", status);
 
+        // FIXME - print stderr output if we fail
+
+        close(pipefds[0]);
+
         return;
     }
+
+    close(pipefds[0]);
 
     vector<string> argv;
 
@@ -131,7 +148,11 @@ static void do_check() {
     }
     argv2.push_back(nullptr);
 
-    // FIXME - replace stderr with pipe, and only print output if we fail?
+    if (dup3(pipefds[1], STDERR_FILENO, 0) < 0) {
+        auto e = errno;
+        close(pipefds[1]);
+        throw formatted_error("dup3 failed for pipe (errno {})", e);
+    }
 
     // replace stdout with /dev/null
     auto devnull = open("/dev/null", O_WRONLY);
