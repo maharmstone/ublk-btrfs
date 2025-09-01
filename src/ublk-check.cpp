@@ -53,6 +53,11 @@ struct queue_info {
     jthread thread;
 };
 
+struct run_params {
+    bool do_trace;
+    string_view filename;
+};
+
 static const unsigned int SECTOR_SHIFT = 9; // 512-byte sectors
 
 static char jbuf[4096];
@@ -82,11 +87,13 @@ static int init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
     return 0;
 }
 
-static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& data) {
+static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& data,
+                   const run_params& params) {
     auto& iod = *data.iod;
     unsigned int num_sectors = iod.nr_sectors;
 
-    print("UBLK_IO_OP_READ ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
+    if (params.do_trace)
+        print("UBLK_IO_OP_READ ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
 
     if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
         num_sectors = 0;
@@ -106,7 +113,7 @@ static pid_t sys_clone3(clone_args* args) {
     return syscall(__NR_clone3, args, sizeof(clone_args));
 }
 
-static void do_check(uint64_t generation) {
+static void do_check(uint64_t generation, const run_params& params) {
     int pipefds[2];
 
     if (auto ret = pipe(pipefds); ret < 0)
@@ -208,10 +215,10 @@ static void do_check(uint64_t generation) {
 
     vector<string> argv;
 
-    argv.push_back("/sbin/btrfs");
-    argv.push_back("check");
-    argv.push_back("--force");
-    argv.push_back("file"); // FIXME
+    argv.emplace_back("/sbin/btrfs");
+    argv.emplace_back("check");
+    argv.emplace_back("--force");
+    argv.emplace_back(params.filename);
 
     vector<char*> argv2;
 
@@ -247,11 +254,13 @@ static void do_check(uint64_t generation) {
     // doesn't return
 }
 
-static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data) {
+static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data,
+                    const run_params& params) {
     auto& iod = *data.iod;
     unsigned int num_sectors = iod.nr_sectors;
 
-    print("UBLK_IO_OP_WRITE ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
+    if (params.do_trace)
+        print("UBLK_IO_OP_WRITE ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
 
     if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
         num_sectors = 0;
@@ -280,7 +289,7 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
 
         // ignore if btrfs magic no longer in superblock
         if (sb.magic == btrfs::MAGIC)
-            do_check(sb.generation);
+            do_check(sb.generation, params);
 
         ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
     } else {
@@ -297,25 +306,30 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
 static int handle_io_async(const struct ublksrv_queue* q,
                            const struct ublk_io_data* data) {
     auto& iod = *data->iod;
+    const auto& params = *(run_params*)q->private_data;
 
     switch (ublksrv_get_op(&iod)) {
         case UBLK_IO_OP_READ:
-            return do_read(*q, *data);
+            return do_read(*q, *data, params);
 
         case UBLK_IO_OP_WRITE:
-            return do_write(*q, *data);
+            return do_write(*q, *data, params);
 
         case UBLK_IO_OP_DISCARD:
-            print("handle_io_async: UBLK_IO_OP_DISCARD ({:x}, {:x})\n",
-                  iod.start_sector, iod.nr_sectors);
+            if (params.do_trace) {
+                print("handle_io_async: UBLK_IO_OP_DISCARD ({:x}, {:x})\n",
+                      iod.start_sector, iod.nr_sectors);
+            }
             break;
 
         case UBLK_IO_OP_FLUSH:
-            print("handle_io_async: UBLK_IO_OP_FLUSH\n");
+            if (params.do_trace)
+                print("handle_io_async: UBLK_IO_OP_FLUSH\n");
             break;
 
         default:
-            print("handle_io_async: unrecognized op {}\n", ublksrv_get_op(&iod));
+            print(stderr, "handle_io_async: unrecognized op {}\n",
+                  ublksrv_get_op(&iod));
             ublksrv_complete_io(q, data->tag, -EINVAL);
             return -EINVAL;
     }
@@ -331,7 +345,7 @@ static const struct ublksrv_tgt_type tgt_type = {
     .name =  "ublk-check",
 };
 
-static void io_handler_fn(queue_info* info) {
+static void io_handler_fn(queue_info* info, const run_params& params) {
     auto& dev = *info->dev;
     auto& dinfo = *ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(&dev));
 
@@ -345,7 +359,7 @@ static void io_handler_fn(queue_info* info) {
         ublksrv_tgt_store_dev_data(&dev, jbuf);
     }
 
-    ublksrv_queue_ptr q{ublksrv_queue_init(&dev, info->qid, nullptr)};
+    ublksrv_queue_ptr q{ublksrv_queue_init(&dev, info->qid, (void*)&params)};
     if (!q) {
         // FIXME - throw exception and return it to other thread
         print(stderr, "ublk dev {} queue {} init queue failed\n", dinfo.dev_id, info->qid);
@@ -393,7 +407,7 @@ static void set_parameters(struct ublksrv_ctrl_dev* cdev,
         throw formatted_error("dev {} set basic parameter failed {}", info.dev_id, ret);
 }
 
-static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
+static void start_daemon(ublksrv_ctrl_dev* ctrl_dev, const run_params& params) {
     // FIXME - unprivileged ublksrv_ctrl_get_affinity returns EACCES without a wait(??)
     this_thread::sleep_for(chrono::milliseconds{100});
 
@@ -413,7 +427,7 @@ static void start_daemon(ublksrv_ctrl_dev* ctrl_dev) {
         info_array[i].dev = dev.get();
         info_array[i].qid = i;
 
-        info_array[i].thread = jthread(io_handler_fn, &info_array[i]);
+        info_array[i].thread = jthread(io_handler_fn, &info_array[i], params);
     }
 
     set_parameters(ctrl_dev, dev.get());
@@ -471,11 +485,16 @@ static void ublk_check(string_view fn, bool do_trace) {
     if (signal(SIGINT, sig_handler) == SIG_ERR)
         throw formatted_error("signal failed (errno {})", errno);
 
+    run_params params;
+
+    params.do_trace = do_trace;
+    params.filename = fn;
+
     if (auto ret = ublksrv_ctrl_add_dev(ctrl_dev.get()); ret < 0)
         throw formatted_error("ublksrv_ctrl_add_dev failed (error {})", ret);
 
     try {
-        start_daemon(ctrl_dev.get());
+        start_daemon(ctrl_dev.get(), params);
     } catch (...) {
         ublksrv_ctrl_del_dev(ctrl_dev.get());
         throw;
