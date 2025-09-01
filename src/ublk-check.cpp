@@ -104,7 +104,7 @@ static pid_t sys_clone3(clone_args* args) {
     return syscall(__NR_clone3, args, sizeof(clone_args));
 }
 
-static void do_check() {
+static void do_check(uint64_t generation) {
     int pipefds[2];
 
     if (auto ret = pipe(pipefds); ret < 0)
@@ -189,10 +189,11 @@ static void do_check() {
         }
 
         if (siginfo.si_status == 0)
-            print("btrfs check passed\n");
+            print("btrfs check passed (generation {:x})\n", generation);
         else {
             print(stderr, "{}", check_stderr);
-            print(stderr, "btrfs check returned {}\n", siginfo.si_status);
+            print(stderr, "btrfs check returned {} (generation {:x})\n",
+                  siginfo.si_status, generation);
         }
 
         close(pipefds[0]);
@@ -268,10 +269,13 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
            (void*)iod.addr, num_sectors << SECTOR_SHIFT);
 
-    // FIXME - only if btrfs magic still in superblock?
     if (iod.start_sector << SECTOR_SHIFT <= btrfs::superblock_addrs[0] &&
         (iod.start_sector + iod.nr_sectors) << SECTOR_SHIFT > btrfs::superblock_addrs[0]) {
-        do_check();
+        auto& sb = *(btrfs::super_block*)(uintptr_t)(iod.addr + btrfs::superblock_addrs[0] - (iod.start_sector << SECTOR_SHIFT));
+
+        // ignore if btrfs magic no longer in superblock
+        if (sb.magic == btrfs::MAGIC)
+            do_check(sb.generation);
     }
 
     ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
