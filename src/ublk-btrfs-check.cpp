@@ -57,6 +57,7 @@ struct queue_info {
 struct run_params {
     bool do_trace;
     bool do_reflink;
+    bool do_check;
     string_view filename;
 };
 
@@ -116,7 +117,7 @@ static pid_t sys_clone3(clone_args* args) {
     return syscall(__NR_clone3, args, sizeof(clone_args));
 }
 
-static void do_check(uint64_t generation, const run_params& params) {
+static void run_check(uint64_t generation, const run_params& params) {
     int pipefds[2];
 
     if (auto ret = pipe(pipefds); ret < 0)
@@ -309,7 +310,8 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
 
         // ignore if btrfs magic no longer in superblock
         if (sb.magic == btrfs::MAGIC) {
-            do_check(sb.generation, params); // FIXME - option for this
+            if (params.do_check)
+                run_check(sb.generation, params);
 
             if (params.do_reflink) {
                 if (sb.generation == last_reflink_generation)
@@ -484,7 +486,8 @@ static void sig_handler(int) {
     ublksrv_ctrl_stop_dev(ctrl_dev.get());
 }
 
-static void ublk_check(string_view fn, bool do_trace, bool do_reflink) {
+static void ublk_check(string_view fn, bool do_trace, bool do_reflink,
+                       bool do_check) {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
         .max_io_buf_bytes = DEF_BUF_SIZE,
@@ -511,6 +514,7 @@ static void ublk_check(string_view fn, bool do_trace, bool do_reflink) {
 
     params.do_trace = do_trace;
     params.do_reflink = do_reflink;
+    params.do_check = do_check;
     params.filename = fn;
 
     if (auto ret = ublksrv_ctrl_add_dev(ctrl_dev.get()); ret < 0)
@@ -527,7 +531,8 @@ static void ublk_check(string_view fn, bool do_trace, bool do_reflink) {
 }
 
 int main(int argc, char** argv) {
-    bool do_trace = false, do_reflink = false, print_usage = false;
+    bool do_trace = false, do_reflink = false, do_check = false,
+         print_usage = false;
 
     while (true) {
         enum {
@@ -536,6 +541,7 @@ int main(int argc, char** argv) {
 
         static const option long_opts[] = {
             { "trace", no_argument, nullptr, 't' },
+            { "check", no_argument, nullptr, 'c' },
             { "reflink", no_argument, nullptr, 'r' },
             { "help", no_argument, nullptr, GETOPT_VAL_HELP },
             { nullptr, 0, nullptr, 0 }
@@ -546,11 +552,14 @@ int main(int argc, char** argv) {
             break;
 
         switch (c) {
-            case 't':
-                do_trace = true;
+            case 'c':
+                do_check = true;
                 break;
             case 'r':
                 do_reflink = true;
+                break;
+            case 't':
+                do_trace = true;
                 break;
             case GETOPT_VAL_HELP:
             case '?':
@@ -566,8 +575,9 @@ int main(int argc, char** argv) {
 
     Options:
     -t|--trace          print commands as we receive them
-    -r|--reflink        create a reflink copy of the image every time we write
-                        the superblock
+    -c|--check          run btrfs check every time the superblock is written
+    -r|--reflink        create a reflink copy of the image every time the
+                        superblock is written
     --help              print this screen
 )");
         return 1;
@@ -576,7 +586,7 @@ int main(int argc, char** argv) {
     auto fn = string_view(argv[optind]);
 
     try {
-        ublk_check(fn, do_trace, do_reflink);
+        ublk_check(fn, do_trace, do_reflink, do_check);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
     }
