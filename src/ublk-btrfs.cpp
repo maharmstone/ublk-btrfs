@@ -375,7 +375,7 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     };
 
     if (params.trace_writes) {
-        auto now = chrono::floor<chrono::milliseconds>(chrono::system_clock::now());
+        auto now = chrono::floor<chrono::milliseconds>(chrono::current_zone()->to_local(chrono::system_clock::now()));
 
         // FIXME - print separator after first non-superblock write?
 
