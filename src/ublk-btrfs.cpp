@@ -79,7 +79,7 @@ static int init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
         .type = type
     };
 
-    strcpy(tgt_json.name, "ublk-btrfs-check");
+    strcpy(tgt_json.name, "ublk-btrfs");
 
     tgt_json.dev_size = tgt.dev_size = mapping->length;
     tgt.tgt_ring_depth = info.queue_depth;
@@ -381,7 +381,7 @@ static int handle_io_async(const struct ublksrv_queue* q,
 static const struct ublksrv_tgt_type tgt_type = {
     .handle_io_async = handle_io_async,
     .init_tgt = init_tgt,
-    .name =  "ublk-btrfs-check",
+    .name =  "ublk-btrfs",
 };
 
 static void io_handler_fn(queue_info* info, const run_params& params) {
@@ -486,7 +486,7 @@ static void sig_handler(int) {
     ublksrv_ctrl_stop_dev(ctrl_dev.get());
 }
 
-static void ublk_check(string_view fn, bool do_trace, bool do_reflink,
+static void start_ublk(string_view fn, bool do_trace, bool do_reflink,
                        bool do_check) {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
@@ -569,9 +569,9 @@ int main(int argc, char** argv) {
     }
 
     if (print_usage || optind != argc - 1) {
-        fprintf(stderr, R"(Usage: ublk-btrfs-check [options] <file>
+        fprintf(stderr, R"(Usage: ublk-btrfs [options] <file>
 
-    Start a ublk device which does btrfs checking.
+    Start a ublk device which understands btrfs.
 
     Options:
     -t|--trace          print commands as we receive them
@@ -586,7 +586,7 @@ int main(int argc, char** argv) {
     auto fn = string_view(argv[optind]);
 
     try {
-        ublk_check(fn, do_trace, do_reflink, do_check);
+        start_ublk(fn, do_trace, do_reflink, do_check);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
     }
