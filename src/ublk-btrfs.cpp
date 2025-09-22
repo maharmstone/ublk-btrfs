@@ -3,8 +3,6 @@
 #include <linux/sched.h>
 #include <sys/ioctl.h>
 #include <poll.h>
-#include <ublksrv.h>
-#include <ublksrv_utils.h>
 #include <string.h>
 #include <iostream>
 #include <memory>
@@ -15,6 +13,19 @@
 #include <format>
 #include <print>
 #include <chrono>
+
+// work around bug in ublk header file
+#ifndef DEBUG
+#define SET_DEBUG
+#define DEBUG
+#endif
+
+#include <ublksrv.h>
+#include <ublksrv_utils.h>
+
+#ifdef SET_DEBUG
+#undef DEBUG
+#endif
 
 import formatted_error;
 import mmap;
@@ -631,6 +642,7 @@ int main(int argc, char** argv) {
         enum {
             GETOPT_VAL_HELP,
             GETOPT_VAL_RAW_TRACE,
+            GETOPT_VAL_UBLK_DEBUG,
         };
 
         static const option long_opts[] = {
@@ -638,6 +650,7 @@ int main(int argc, char** argv) {
             { "raw-trace", no_argument, nullptr, GETOPT_VAL_RAW_TRACE },
             { "check", no_argument, nullptr, 'c' },
             { "reflink", no_argument, nullptr, 'r' },
+            { "ublk-debug", no_argument, nullptr, GETOPT_VAL_UBLK_DEBUG },
             { "help", no_argument, nullptr, GETOPT_VAL_HELP },
             { nullptr, 0, nullptr, 0 }
         };
@@ -659,6 +672,9 @@ int main(int argc, char** argv) {
             case GETOPT_VAL_RAW_TRACE:
                 raw_trace = true;
                 break;
+            case GETOPT_VAL_UBLK_DEBUG:
+                ublk_set_debug_mask(0xffffffff);
+                break;
             case GETOPT_VAL_HELP:
             case '?':
                 print_usage = true;
@@ -677,6 +693,8 @@ int main(int argc, char** argv) {
     -r|--reflink        create a reflink copy of the image every time the
                         superblock is written
     --raw-trace         print commands as we receive them
+    --ublk-debug        turn on ublk debug logging (requires ublksrv to have
+                        been compiled with debug support)
     --help              print this screen
 )");
         return 1;
