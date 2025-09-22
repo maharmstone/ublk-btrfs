@@ -375,19 +375,19 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     };
 
     if (params.trace_writes) {
-        auto now = duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        auto now = chrono::floor<chrono::milliseconds>(chrono::system_clock::now());
 
         // FIXME - print separator after first non-superblock write?
 
         // FIXME - print virtual addresses?
 
         if (iod.op_flags & UBLK_IO_F_META) {
-            print("time {}, metadata write: {:x}, {:x}\n", now,
+            print("{:%FT%T}, metadata write: {:x}, {:x}\n", now,
                   iod.start_sector << SECTOR_SHIFT, iod.nr_sectors << SECTOR_SHIFT);
 
             dump_metadata_writes(span((uint8_t*)iod.addr, num_sectors << SECTOR_SHIFT));
         } else {
-            print("time {}, non-metadata write: {:x}, {:x}\n", now,
+            print("{:%FT%T}, non-metadata write: {:x}, {:x}\n", now,
                   iod.start_sector << SECTOR_SHIFT, iod.nr_sectors << SECTOR_SHIFT);
         }
     }
