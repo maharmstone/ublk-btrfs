@@ -1,6 +1,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <linux/sched.h>
+#include <sys/ioctl.h>
 #include <poll.h>
 #include <ublksrv.h>
 #include <ublksrv_utils.h>
@@ -66,6 +67,7 @@ static mutex jbuf_lock;
 static ublksrv_ctrl_dev_ptr ctrl_dev;
 static optional<mmap> mapping;
 static shared_mutex write_mutex;
+static uint64_t last_reflink_generation, last_reflink_subgen;
 
 static int init_tgt(struct ublksrv_dev* dev, int type, int /*argc*/,
                     char** /*argv*/) {
@@ -255,9 +257,21 @@ static void do_check(uint64_t generation, const run_params& params) {
     // doesn't return
 }
 
-static void do_reflink_copy() {
-    // FIXME
-    cerr << "FIXME - do_reflink_copy" << endl;
+static void do_reflink_copy(const char* fn) {
+    // FIXME - use same mode as backing file
+    auto fd = open(fn, O_CREAT | O_WRONLY, 0644);
+    if (fd < 0) {
+        cerr << format("do_reflink_copy: could not open {} for writing (errno {})\n", fn, errno);
+        return;
+    }
+
+    if (ioctl(fd, FICLONE, mapping->fd) < 0) {
+        close(fd);
+        cerr << format("do_reflink_copy: FICLONE failed (errno {})\n", errno);
+        return;
+    }
+
+    close(fd);
 }
 
 static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data,
@@ -297,8 +311,21 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
         if (sb.magic == btrfs::MAGIC) {
             do_check(sb.generation, params); // FIXME - option for this
 
-            if (params.do_reflink)
-                do_reflink_copy();
+            if (params.do_reflink) {
+                if (sb.generation == last_reflink_generation)
+                    last_reflink_subgen++;
+                else {
+                    last_reflink_generation = sb.generation;
+                    last_reflink_subgen = 0;
+                }
+
+                auto name = format("reflink-{:x}", last_reflink_generation);
+
+                if (last_reflink_subgen != 0)
+                    name += format("-{}", last_reflink_subgen);
+
+                do_reflink_copy(name.c_str());
+            }
         }
 
         ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
@@ -457,21 +484,6 @@ static void sig_handler(int) {
     ublksrv_ctrl_stop_dev(ctrl_dev.get());
 }
 
-static void open_backing_file(const char* fn) {
-    auto fd = open(fn, O_RDWR);
-    if (fd < 0)
-        throw formatted_error("{}: open failed (errno {})", fn, errno);
-
-    try {
-        mapping.emplace(fd);
-    } catch (...) {
-        close(fd);
-        throw;
-    }
-
-    close(fd);
-}
-
 static void ublk_check(string_view fn, bool do_trace, bool do_reflink) {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
@@ -483,7 +495,7 @@ static void ublk_check(string_view fn, bool do_trace, bool do_reflink) {
         .flags = UBLK_F_UNPRIVILEGED_DEV,
     };
 
-    open_backing_file(string{fn}.c_str());
+    mapping.emplace(string{fn}.c_str());
 
     ctrl_dev.reset(ublksrv_ctrl_init(&dev_data));
     if (!ctrl_dev)
