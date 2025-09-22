@@ -1,7 +1,7 @@
-ublk-btrfs-check
-================
+ublk-btrfs
+==========
 
-`ublk-btrfs-check` is a ublk target which runs `btrfs check` every time the
+`ublk-btrfs` is a ublk target which runs `btrfs check` every time the
 superblock is written on a btrfs volume. This is useful if you are trying to
 fix a corruption issue: you will have the `btrfs check` output from as soon as
 the problem starts to manifest.
