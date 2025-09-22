@@ -55,6 +55,7 @@ struct queue_info {
 
 struct run_params {
     bool do_trace;
+    bool do_reflink;
     string_view filename;
 };
 
@@ -254,6 +255,11 @@ static void do_check(uint64_t generation, const run_params& params) {
     // doesn't return
 }
 
+static void do_reflink_copy() {
+    // FIXME
+    cerr << "FIXME - do_reflink_copy" << endl;
+}
+
 static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data,
                     const run_params& params) {
     auto& iod = *data.iod;
@@ -288,8 +294,12 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
         auto& sb = *(btrfs::super_block*)(uintptr_t)(iod.addr + btrfs::superblock_addrs[0] - (iod.start_sector << SECTOR_SHIFT));
 
         // ignore if btrfs magic no longer in superblock
-        if (sb.magic == btrfs::MAGIC)
-            do_check(sb.generation, params);
+        if (sb.magic == btrfs::MAGIC) {
+            do_check(sb.generation, params); // FIXME - option for this
+
+            if (params.do_reflink)
+                do_reflink_copy();
+        }
 
         ublksrv_complete_io(&q, data.tag, num_sectors << SECTOR_SHIFT);
     } else {
@@ -462,7 +472,7 @@ static void open_backing_file(const char* fn) {
     close(fd);
 }
 
-static void ublk_check(string_view fn, bool do_trace) {
+static void ublk_check(string_view fn, bool do_trace, bool do_reflink) {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
         .max_io_buf_bytes = DEF_BUF_SIZE,
@@ -488,6 +498,7 @@ static void ublk_check(string_view fn, bool do_trace) {
     run_params params;
 
     params.do_trace = do_trace;
+    params.do_reflink = do_reflink;
     params.filename = fn;
 
     if (auto ret = ublksrv_ctrl_add_dev(ctrl_dev.get()); ret < 0)
@@ -504,7 +515,7 @@ static void ublk_check(string_view fn, bool do_trace) {
 }
 
 int main(int argc, char** argv) {
-    bool do_trace = false, print_usage = false;
+    bool do_trace = false, do_reflink = false, print_usage = false;
 
     while (true) {
         enum {
@@ -513,17 +524,21 @@ int main(int argc, char** argv) {
 
         static const option long_opts[] = {
             { "trace", no_argument, nullptr, 't' },
+            { "reflink", no_argument, nullptr, 'r' },
             { "help", no_argument, nullptr, GETOPT_VAL_HELP },
             { nullptr, 0, nullptr, 0 }
         };
 
-        auto c = getopt_long(argc, argv, "t", long_opts, nullptr);
+        auto c = getopt_long(argc, argv, "rt", long_opts, nullptr);
         if (c < 0)
             break;
 
         switch (c) {
             case 't':
                 do_trace = true;
+                break;
+            case 'r':
+                do_reflink = true;
                 break;
             case GETOPT_VAL_HELP:
             case '?':
@@ -539,6 +554,8 @@ int main(int argc, char** argv) {
 
     Options:
     -t|--trace          print commands as we receive them
+    -r|--reflink        create a reflink copy of the image every time we write
+                        the superblock
     --help              print this screen
 )");
         return 1;
@@ -547,7 +564,7 @@ int main(int argc, char** argv) {
     auto fn = string_view(argv[optind]);
 
     try {
-        ublk_check(fn, do_trace);
+        ublk_check(fn, do_trace, do_reflink);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
     }
