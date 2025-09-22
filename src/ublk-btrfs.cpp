@@ -58,6 +58,7 @@ struct run_params {
     bool raw_trace;
     bool do_reflink;
     bool do_check;
+    bool trace_writes;
     string_view filename;
 };
 
@@ -275,6 +276,21 @@ static void do_reflink_copy(const char* fn) {
     close(fd);
 }
 
+static void dump_metadata_writes(span<const uint8_t> buf) {
+    static const uint32_t node_size = 0x4000; // FIXME - get node size from superblock
+
+    // FIXME - exclude superblock writes
+
+    while (buf.size() >= node_size) {
+        auto& h = *(btrfs::header*)buf.data();
+
+        print("    tree: owner {:x}, bytenr {:x}, generation {:x}, level {:x}\n",
+              h.owner, h.bytenr, h.generation, h.level);
+
+        buf = buf.subspan(node_size);
+    }
+}
+
 static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& data,
                     const run_params& params) {
     auto& iod = *data.iod;
@@ -299,6 +315,24 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
         memcpy(mapping->get_span().data() + (iod.start_sector << SECTOR_SHIFT),
                (void*)iod.addr, num_sectors << SECTOR_SHIFT);
     };
+
+    if (params.trace_writes) {
+        auto now = duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+
+        // FIXME - print separator after first non-superblock write?
+
+        // FIXME - print virtual addresses?
+
+        if (iod.op_flags & UBLK_IO_F_META) {
+            print("time {}, metadata write: {:x}, {:x}\n", now,
+                  iod.start_sector << SECTOR_SHIFT, iod.nr_sectors << SECTOR_SHIFT);
+
+            dump_metadata_writes(span((uint8_t*)iod.addr, num_sectors << SECTOR_SHIFT));
+        } else {
+            print("time {}, non-metadata write: {:x}, {:x}\n", now,
+                  iod.start_sector << SECTOR_SHIFT, iod.nr_sectors << SECTOR_SHIFT);
+        }
+    }
 
     if (iod.start_sector << SECTOR_SHIFT <= btrfs::superblock_addrs[0] &&
         (iod.start_sector + iod.nr_sectors) << SECTOR_SHIFT > btrfs::superblock_addrs[0]) {
@@ -487,7 +521,7 @@ static void sig_handler(int) {
 }
 
 static void start_ublk(string_view fn, bool raw_trace, bool do_reflink,
-                       bool do_check) {
+                       bool do_check, bool trace_writes) {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
         .max_io_buf_bytes = DEF_BUF_SIZE,
@@ -515,6 +549,7 @@ static void start_ublk(string_view fn, bool raw_trace, bool do_reflink,
     params.raw_trace = raw_trace;
     params.do_reflink = do_reflink;
     params.do_check = do_check;
+    params.trace_writes = trace_writes;
     params.filename = fn;
 
     if (auto ret = ublksrv_ctrl_add_dev(ctrl_dev.get()); ret < 0)
@@ -532,7 +567,7 @@ static void start_ublk(string_view fn, bool raw_trace, bool do_reflink,
 
 int main(int argc, char** argv) {
     bool raw_trace = false, do_reflink = false, do_check = false,
-         print_usage = false;
+         print_usage = false, trace_writes = false;
 
     while (true) {
         enum {
@@ -541,6 +576,7 @@ int main(int argc, char** argv) {
         };
 
         static const option long_opts[] = {
+            { "trace", no_argument, nullptr, 't' },
             { "raw-trace", no_argument, nullptr, GETOPT_VAL_RAW_TRACE },
             { "check", no_argument, nullptr, 'c' },
             { "reflink", no_argument, nullptr, 'r' },
@@ -560,6 +596,9 @@ int main(int argc, char** argv) {
                 do_reflink = true;
                 break;
             case 't':
+                trace_writes = true;
+                break;
+            case GETOPT_VAL_RAW_TRACE:
                 raw_trace = true;
                 break;
             case GETOPT_VAL_HELP:
@@ -575,6 +614,7 @@ int main(int argc, char** argv) {
     Start a ublk device which understands btrfs.
 
     Options:
+    -t|--trace          trace writes
     -c|--check          run btrfs check every time the superblock is written
     -r|--reflink        create a reflink copy of the image every time the
                         superblock is written
@@ -587,7 +627,7 @@ int main(int argc, char** argv) {
     auto fn = string_view(argv[optind]);
 
     try {
-        start_ublk(fn, raw_trace, do_reflink, do_check);
+        start_ublk(fn, raw_trace, do_reflink, do_check, trace_writes);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
     }
