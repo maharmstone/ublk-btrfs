@@ -14,6 +14,7 @@
 #include <thread>
 #include <format>
 #include <print>
+#include <chrono>
 
 import formatted_error;
 import mmap;
@@ -276,6 +277,61 @@ static void do_reflink_copy(const char* fn) {
     close(fd);
 }
 
+static const char* get_tree_name(uint64_t num) {
+    switch (num) {
+        case btrfs::ROOT_TREE_OBJECTID:
+            return "root";
+
+        case btrfs::EXTENT_TREE_OBJECTID:
+            return "extent";
+
+        case btrfs::CHUNK_TREE_OBJECTID:
+            return "chunk";
+
+        case btrfs::DEV_TREE_OBJECTID:
+            return "device";
+
+        case btrfs::FS_TREE_OBJECTID:
+            return "fs";
+
+        case btrfs::CSUM_TREE_OBJECTID:
+            return "csum";
+
+        case btrfs::QUOTA_TREE_OBJECTID:
+            return "quota";
+
+        case btrfs::UUID_TREE_OBJECTID:
+            return "uuid";
+
+        case btrfs::FREE_SPACE_TREE_OBJECTID:
+            return "free_space";
+
+        case btrfs::BLOCK_GROUP_TREE_OBJECTID:
+            return "block_group";
+
+        case btrfs::RAID_STRIPE_TREE_OBJECTID:
+            return "raid_stripe";
+
+        case btrfs::REMAP_TREE_OBJECTID:
+            return "remap";
+
+        case btrfs::TREE_LOG_FIXUP_OBJECTID:
+            return "tree_log_fixup";
+
+        case btrfs::TREE_LOG_OBJECTID:
+            return "tree_log";
+
+        case btrfs::TREE_RELOC_OBJECTID:
+            return "tree_reloc";
+
+        case btrfs::DATA_RELOC_TREE_OBJECTID:
+            return "data_reloc";
+
+        default:
+            return nullptr;
+    }
+}
+
 static void dump_metadata_writes(span<const uint8_t> buf) {
     static const uint32_t node_size = 0x4000; // FIXME - get node size from superblock
 
@@ -284,8 +340,10 @@ static void dump_metadata_writes(span<const uint8_t> buf) {
     while (buf.size() >= node_size) {
         auto& h = *(btrfs::header*)buf.data();
 
-        print("    tree: owner {:x}, bytenr {:x}, generation {:x}, level {:x}\n",
-              h.owner, h.bytenr, h.generation, h.level);
+        auto name = get_tree_name(h.owner);
+
+        print("    tree: owner {:x}, bytenr {:x}, generation {:x}, level {:x}{}\n",
+              h.owner, h.bytenr, h.generation, h.level, name ? (" (" + string{name} + ")") : "");
 
         buf = buf.subspan(node_size);
     }

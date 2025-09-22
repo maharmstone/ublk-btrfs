@@ -161,6 +161,7 @@ constexpr uint64_t BLOCK_GROUP_REMAP = 1 << 12;
 
 constexpr uint64_t FIRST_CHUNK_TREE_OBJECTID = 0x100;
 
+constexpr uint64_t DEV_STATS_OBJECTID = 0x0;
 constexpr uint64_t ROOT_TREE_OBJECTID = 0x1;
 constexpr uint64_t EXTENT_TREE_OBJECTID = 0x2;
 constexpr uint64_t CHUNK_TREE_OBJECTID = 0x3;
@@ -168,13 +169,21 @@ constexpr uint64_t DEV_TREE_OBJECTID = 0x4;
 constexpr uint64_t FS_TREE_OBJECTID = 0x5;
 constexpr uint64_t ROOT_TREE_DIR_OBJECTID = 0x6;
 constexpr uint64_t CSUM_TREE_OBJECTID = 0x7;
+constexpr uint64_t QUOTA_TREE_OBJECTID = 0x8;
 constexpr uint64_t UUID_TREE_OBJECTID = 0x9;
 constexpr uint64_t FREE_SPACE_TREE_OBJECTID = 0xa;
 constexpr uint64_t BLOCK_GROUP_TREE_OBJECTID = 0xb;
 constexpr uint64_t RAID_STRIPE_TREE_OBJECTID = 0xc;
 constexpr uint64_t REMAP_TREE_OBJECTID = 0xd;
+constexpr uint64_t FREE_INO_OBJECTID = 0xfffffffffffffff4;
+constexpr uint64_t FREE_SPACE_OBJECTID = 0xfffffffffffffff5;
 constexpr uint64_t EXTENT_CSUM_OBJECTID = 0xfffffffffffffff6;
 constexpr uint64_t DATA_RELOC_TREE_OBJECTID = 0xfffffffffffffff7;
+constexpr uint64_t TREE_RELOC_OBJECTID = 0xfffffffffffffff8;
+constexpr uint64_t TREE_LOG_FIXUP_OBJECTID = 0xfffffffffffffff9;
+constexpr uint64_t TREE_LOG_OBJECTID = 0xfffffffffffffffa;
+constexpr uint64_t ORPHAN_OBJECTID = 0xfffffffffffffffb;
+constexpr uint64_t BALANCE_OBJECTID = 0xfffffffffffffffc;
 
 constexpr uint64_t DEVICE_RANGE_RESERVED = 0x100000;
 
