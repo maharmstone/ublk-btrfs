@@ -55,7 +55,7 @@ struct queue_info {
 };
 
 struct run_params {
-    bool do_trace;
+    bool raw_trace;
     bool do_reflink;
     bool do_check;
     string_view filename;
@@ -96,7 +96,7 @@ static int do_read(const struct ublksrv_queue& q, const struct ublk_io_data& dat
     auto& iod = *data.iod;
     unsigned int num_sectors = iod.nr_sectors;
 
-    if (params.do_trace)
+    if (params.raw_trace)
         print("UBLK_IO_OP_READ ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
 
     if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
@@ -280,7 +280,7 @@ static int do_write(const struct ublksrv_queue& q, const struct ublk_io_data& da
     auto& iod = *data.iod;
     unsigned int num_sectors = iod.nr_sectors;
 
-    if (params.do_trace)
+    if (params.raw_trace)
         print("UBLK_IO_OP_WRITE ({:x}, {:x})\n", iod.start_sector, iod.nr_sectors);
 
     if (iod.start_sector >= mapping->length >> SECTOR_SHIFT)
@@ -355,14 +355,14 @@ static int handle_io_async(const struct ublksrv_queue* q,
             return do_write(*q, *data, params);
 
         case UBLK_IO_OP_DISCARD:
-            if (params.do_trace) {
+            if (params.raw_trace) {
                 print("handle_io_async: UBLK_IO_OP_DISCARD ({:x}, {:x})\n",
                       iod.start_sector, iod.nr_sectors);
             }
             break;
 
         case UBLK_IO_OP_FLUSH:
-            if (params.do_trace)
+            if (params.raw_trace)
                 print("handle_io_async: UBLK_IO_OP_FLUSH\n");
             break;
 
@@ -486,7 +486,7 @@ static void sig_handler(int) {
     ublksrv_ctrl_stop_dev(ctrl_dev.get());
 }
 
-static void start_ublk(string_view fn, bool do_trace, bool do_reflink,
+static void start_ublk(string_view fn, bool raw_trace, bool do_reflink,
                        bool do_check) {
     ublksrv_dev_data dev_data = {
         .dev_id = -1,
@@ -512,7 +512,7 @@ static void start_ublk(string_view fn, bool do_trace, bool do_reflink,
 
     run_params params;
 
-    params.do_trace = do_trace;
+    params.raw_trace = raw_trace;
     params.do_reflink = do_reflink;
     params.do_check = do_check;
     params.filename = fn;
@@ -531,16 +531,17 @@ static void start_ublk(string_view fn, bool do_trace, bool do_reflink,
 }
 
 int main(int argc, char** argv) {
-    bool do_trace = false, do_reflink = false, do_check = false,
+    bool raw_trace = false, do_reflink = false, do_check = false,
          print_usage = false;
 
     while (true) {
         enum {
-            GETOPT_VAL_HELP
+            GETOPT_VAL_HELP,
+            GETOPT_VAL_RAW_TRACE,
         };
 
         static const option long_opts[] = {
-            { "trace", no_argument, nullptr, 't' },
+            { "raw-trace", no_argument, nullptr, GETOPT_VAL_RAW_TRACE },
             { "check", no_argument, nullptr, 'c' },
             { "reflink", no_argument, nullptr, 'r' },
             { "help", no_argument, nullptr, GETOPT_VAL_HELP },
@@ -559,7 +560,7 @@ int main(int argc, char** argv) {
                 do_reflink = true;
                 break;
             case 't':
-                do_trace = true;
+                raw_trace = true;
                 break;
             case GETOPT_VAL_HELP:
             case '?':
@@ -574,10 +575,10 @@ int main(int argc, char** argv) {
     Start a ublk device which understands btrfs.
 
     Options:
-    -t|--trace          print commands as we receive them
     -c|--check          run btrfs check every time the superblock is written
     -r|--reflink        create a reflink copy of the image every time the
                         superblock is written
+    --raw-trace         print commands as we receive them
     --help              print this screen
 )");
         return 1;
@@ -586,7 +587,7 @@ int main(int argc, char** argv) {
     auto fn = string_view(argv[optind]);
 
     try {
-        start_ublk(fn, do_trace, do_reflink, do_check);
+        start_ublk(fn, raw_trace, do_reflink, do_check);
     } catch (const exception& e) {
         cerr << "Exception: " << e.what() << endl;
     }
